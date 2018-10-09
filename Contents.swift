@@ -3,7 +3,9 @@ import PlaygroundSupport
 
 // MARK: Custom NSCollectionViewLayout
 
-class TestLayout: NSCollectionViewLayout {
+/// An NSCollectionViewLayout that should display items with equal widths from top to bottom.
+/// Each item's height should be determined by Auto Layout.
+class ListLayout: NSCollectionViewLayout {
     var verticalItemSpacing: CGFloat = 8
     var contentEdgeInsets: NSEdgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
     private var cachedContentBounds: NSRect = .zero
@@ -11,39 +13,59 @@ class TestLayout: NSCollectionViewLayout {
 
     override var collectionViewContentSize: NSSize {
         guard let collectionView = collectionView else { return .zero }
-        let height: CGFloat = cachedItemAttributes.values.reduce(0) { height, attributes in
+
+        // Add up the heights of all cached items.
+        let totalItemHeight = cachedItemAttributes.values.reduce(0) { height, attributes in
             return height + attributes.size.height
         }
-        let totalVerticalSpacing = CGFloat(cachedItemAttributes.count) * verticalItemSpacing + contentEdgeInsets.top + contentEdgeInsets.bottom
-        return NSSize(width: collectionView.bounds.width, height: height + totalVerticalSpacing)
+
+        // Determine the amount of inter-item spacing.
+        let interItemSpacing = CGFloat(cachedItemAttributes.count) * verticalItemSpacing
+
+        // Add up the total spacing from vertical insets.
+        let insetSpacing = contentEdgeInsets.top + contentEdgeInsets.bottom
+
+        let totalHeight = totalItemHeight + interItemSpacing + insetSpacing
+        return NSSize(width: collectionView.bounds.width, height: totalHeight)
     }
 
     override func prepare() {
+        // Only recaluclate the entire layout when it's cache is empty.
         guard let collectionView = collectionView,
-            cachedItemAttributes.isEmpty else { return }
+              cachedItemAttributes.isEmpty else { return }
+
+        // Get the index paths for all items in the collection view.
         let sectionIndices = 0 ..< collectionView.numberOfSections
         let indexPaths = sectionIndices.flatMap { section -> [IndexPath] in
             let numberOfItems = collectionView.numberOfItems(inSection: section)
             return (0 ..< numberOfItems).map { IndexPath(item: $0, section: section) }
         }
-        cachedItemAttributes.keys
-            .filter { !indexPaths.contains($0) }
-            .forEach { cachedItemAttributes.removeValue(forKey: $0) }
 
         cachedContentBounds = collectionView.bounds
+
+        // The width of each item in the collection view.
         let width = collectionView.bounds.width - contentEdgeInsets.left - contentEdgeInsets.right
+
+        // The origin point for the first (top-most) item in the collection view.
         let origin = NSPoint(x: contentEdgeInsets.left, y: contentEdgeInsets.top)
+
+        // Calculate initial layout attributes for each item.
         _ = indexPaths.reduce(origin) { origin, indexPath in
-            let attributes = cachedItemAttributes[indexPath] ?? NSCollectionViewLayoutAttributes(forItemWith: indexPath)
+            // Determine the item's size with an "estimated" height value.
             let size = NSSize(width: width, height: 10)
+
+            // Create the item's attributes, and add them to the cache.
+            let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
             attributes.frame = NSRect(origin: origin, size: size)
             cachedItemAttributes[indexPath] = attributes
+
+            // Get the origin point for the next item in the collection view.
             return NSPoint(x: origin.x, y: origin.y + size.height + verticalItemSpacing)
         }
     }
 }
 
-extension TestLayout {
+extension ListLayout {
     override func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
         return cachedItemAttributes[indexPath]
     }
@@ -53,7 +75,7 @@ extension TestLayout {
     }
 }
 
-extension TestLayout {
+extension ListLayout {
     class InvalidationContext: NSCollectionViewLayoutInvalidationContext {
         var preferredLayoutAttributes: NSCollectionViewLayoutAttributes?
     }
@@ -62,46 +84,64 @@ extension TestLayout {
 
     override func invalidateLayout(with rawContext: NSCollectionViewLayoutInvalidationContext) {
         super.invalidateLayout(with: rawContext)
+
+        // If the collection view's width or the number of items has changed,
+        // empty the cache and recalculate the entire layout.
         guard !rawContext.invalidateEverything,
-            !rawContext.invalidateDataSourceCounts,
-            rawContext.contentSizeAdjustment.width == 0 else {
+              !rawContext.invalidateDataSourceCounts,
+              rawContext.contentSizeAdjustment.width == 0 else {
                 cachedItemAttributes.removeAll(keepingCapacity: true)
                 return
         }
+
+        // If the invalidation context doesn't specify an item's preferred attributes,
+        // empty the cache and recalucalte the entire layout.
         guard let context = rawContext as? InvalidationContext,
-            let preferredAttributes = context.preferredLayoutAttributes,
-            let indexPath = preferredAttributes.indexPath,
-            let originalAttributes = cachedItemAttributes[indexPath] else {
+              let preferredAttributes = context.preferredLayoutAttributes,
+              let indexPath = preferredAttributes.indexPath,
+              let originalAttributes = cachedItemAttributes[indexPath] else {
                 cachedItemAttributes.removeAll(keepingCapacity: true)
                 return
         }
+
         cachedItemAttributes.values.forEach { attributes in
+            // Only adjust attributes for the item with preferred attributes,
+            // and all items that appear afterwards.
             guard attributes.frame.origin.y >= originalAttributes.frame.origin.y else { return }
-            guard attributes.indexPath != indexPath else {
+            if attributes.indexPath == indexPath {
+                // Change the height of the item with preferred attributes.
                 attributes.size.height = preferredAttributes.size.height
-                return
+            } else {
+                // Shift all other items' vertical location to account the change in item height.
+                attributes.frame.origin.y += context.contentSizeAdjustment.height
             }
-            attributes.frame.origin.y += context.contentSizeAdjustment.height
         }
     }
+}
 
-    // MARK: Preferred Attributes
-
-    // NOTE: This method is never called
+// MARK: - Preferred Attributes
+extension ListLayout {
+    // NOTE: This method is never called, but it should be called immediately after
+    //       TextFieldItem.preferredLayoutAttributes(fitting:).
     override func shouldInvalidateLayout(forPreferredLayoutAttributes preferredAttributes: NSCollectionViewLayoutAttributes, withOriginalAttributes originalAttributes: NSCollectionViewLayoutAttributes) -> Bool {
+        // Invalidate if the item's preferred size is different from it's original attributes.
         return preferredAttributes.size != originalAttributes.size
     }
 
-    // NOTE: This method is never called
+    // NOTE: This method is never called, but it should be called immediately after
+    //       shouldInvalidateLayout(forPreferredLayoutAttributes:withOriginalAttributes:).
     override func invalidationContext(forPreferredLayoutAttributes preferredAttributes: NSCollectionViewLayoutAttributes, withOriginalAttributes originalAttributes: NSCollectionViewLayoutAttributes) -> NSCollectionViewLayoutInvalidationContext {
-        let rawContext = super.invalidationContext(forPreferredLayoutAttributes: preferredAttributes, withOriginalAttributes: originalAttributes)
-        guard let context = rawContext as? InvalidationContext else {
-            print("🥥")
-            return rawContext
-        }
-        print("🍇")
+        // Get the initial invalidation context.
+        let context = super.invalidationContext(forPreferredLayoutAttributes: preferredAttributes, withOriginalAttributes: originalAttributes) as! InvalidationContext
+        print("🍇: Invalidating layout with preferred attributes.")
+
+        // Store the preferred attributes within the invalidation context.
         context.preferredLayoutAttributes = preferredAttributes
+
+        // Determine how the item's preferred height affects the collection view's content height.
         context.contentSizeAdjustment.height = preferredAttributes.size.height - originalAttributes.size.height
+
+        // Invalidate the item with preferred attributes and all items the appear afterward.
         let invalidAttributes = cachedItemAttributes.values.filter { attributes in
             attributes.frame.origin.y >= preferredAttributes.frame.origin.y
         }
@@ -109,10 +149,13 @@ extension TestLayout {
         context.invalidateItems(at: invalidItemIndexPaths)
         return context
     }
+}
 
-    // MARK: Bounds Change
-
+// MARK: - Bounds Change
+extension ListLayout {
     override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
+        // We only need to invalidate the layout if the collection view't width changes.
+        // Changes in height won't affect the content's height.
         return newBounds.width != cachedContentBounds.width
     }
 
@@ -125,31 +168,49 @@ extension TestLayout {
 
 // MARK: - Custom NSCollectionViewItem
 
+/// A simple NSCollectionViewItem displaying a single text field with multiple lines of text.
 class TextFieldItem: NSCollectionViewItem {
     override func loadView() {
         view =  NSTextField(frame: NSRect(x: 0, y: 0, width: 100, height: 50))
         textField = view as? NSTextField
+        textField!.maximumNumberOfLines = 0
         textField!.lineBreakMode = .byWordWrapping
         textField!.drawsBackground = false
         textField!.isBordered = false
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.translatesAutoresizingMaskIntoConstraints = false
         view.setContentCompressionResistancePriority(.required, for: .vertical)
     }
 
     override func apply(_ layoutAttributes: NSCollectionViewLayoutAttributes) {
+        // Inform the text field that its width shouldn't exceed the given width.
+        // This is necessary to make sure text fields wrap their text.
         textField!.preferredMaxLayoutWidth = layoutAttributes.size.width
         super.apply(layoutAttributes)
     }
 
-    // NOTE: This method is never called
+    // NOTE: This method is never called, but it should be called immediately after apply(_:).
     override func preferredLayoutAttributesFitting(_ layoutAttributes: NSCollectionViewLayoutAttributes) -> NSCollectionViewLayoutAttributes {
-        print("🍌")
-        return super.preferredLayoutAttributesFitting(layoutAttributes)
+        let attributes = super.preferredLayoutAttributesFitting(layoutAttributes)
+        let width = layoutAttributes.size.width
+
+        // Constrain the text field's width to that provided by the given layout attributes.
+        textField!.preferredMaxLayoutWidth = width
+        print("🍌: Calculating preferred layout attributes within width \(width).")
+
+        // Caclulate the text field's size using the provided layout attribite's width.
+        attributes.size = view.intrinsicContentSize
+        print("🍌: Intrinsic content size is \(view.intrinsicContentSize).")
+
+        return attributes
     }
 }
 
 // MARK: - Test case useage
 
+/// An object that can provide data to an NSCollectionView.
+///
+/// The collection view will be provided with 5 sections of 5 items each.
+/// Each cell is a simple text field, which displays the same three-line statement.
 class DataSource: NSObject, NSCollectionViewDataSource {
     let identifier = NSUserInterfaceItemIdentifier(rawValue: "item")
 
@@ -173,6 +234,7 @@ class DataSource: NSObject, NSCollectionViewDataSource {
     }
 }
 
+/// A view controller managing the display of an NSCollectionView.
 class ViewController: NSViewController {
     var dataSource: NSCollectionViewDataSource? = DataSource()
     var scrollView: NSScrollView! { return view as? NSScrollView }
@@ -182,7 +244,7 @@ class ViewController: NSViewController {
         let frame = NSRect(x: 0, y: 0, width: 300, height: 500)
         view = NSScrollView(frame: frame)
         collectionView = NSCollectionView(frame: frame)
-        collectionView.collectionViewLayout = TestLayout()
+        collectionView.collectionViewLayout = ListLayout()
         collectionView.dataSource = dataSource
         scrollView.documentView = collectionView
         scrollView.verticalScrollElasticity = .allowed
