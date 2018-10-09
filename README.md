@@ -1,6 +1,6 @@
 # NSCollectionViewLayout.playground
 
-## Project
+## Description
 
 I’m trying to create a custom `NSCollectionViewLayout` subclass that will use Auto Layout to determine its items’ sizes. This layout is much like that of a `UITableView`, where items are ordered top-to-bottom and all have the same width.
 
