@@ -33,6 +33,7 @@ class ListLayout: NSCollectionViewLayout {
         // Only recaluclate the entire layout when it's cache is empty.
         guard let collectionView = collectionView,
               cachedItemAttributes.isEmpty else { return }
+        print("🍋: Preparing layout attributes.")
 
         // Get the index paths for all items in the collection view.
         let sectionIndices = 0 ..< collectionView.numberOfSections
@@ -88,10 +89,30 @@ extension ListLayout {
         // If the collection view's width or the number of items has changed,
         // empty the cache and recalculate the entire layout.
         guard !rawContext.invalidateEverything,
-              !rawContext.invalidateDataSourceCounts,
-              rawContext.contentSizeAdjustment.width == 0 else {
+              !rawContext.invalidateDataSourceCounts else {
+                print("🍉: Invalidating layout with reload context.")
                 cachedItemAttributes.removeAll(keepingCapacity: true)
                 return
+        }
+
+        guard rawContext.contentSizeAdjustment.width == 0 else {
+            print("🍉: Invalidating layout with width adjustment context of \(rawContext.contentSizeAdjustment.width).")
+            cachedContentBounds.size.width += rawContext.contentSizeAdjustment.width
+
+            // The origin point for the first (top-most) item in the collection view.
+            let origin = NSPoint(x: contentEdgeInsets.left, y: contentEdgeInsets.top)
+            let width = cachedContentBounds.width - contentEdgeInsets.left - contentEdgeInsets.right
+
+            // Calculate initial layout attributes for each item.
+            _ = cachedItemAttributes.values.reduce(origin) { origin, attributes in
+                // Determine the item's size with an "estimated" height value.
+                let size = NSSize(width: width, height: attributes.size.height)
+                attributes.frame = NSRect(origin: origin, size: size)
+
+                // Get the origin point for the next item in the collection view.
+                return NSPoint(x: origin.x, y: origin.y + size.height + verticalItemSpacing)
+            }
+            return
         }
 
         // If the invalidation context doesn't specify an item's preferred attributes,
@@ -100,10 +121,12 @@ extension ListLayout {
               let preferredAttributes = context.preferredLayoutAttributes,
               let indexPath = preferredAttributes.indexPath,
               let originalAttributes = cachedItemAttributes[indexPath] else {
+                print("🍉: Invalidating layout with unknown context.")
                 cachedItemAttributes.removeAll(keepingCapacity: true)
                 return
         }
 
+        print("🍉: Invalidating layout with preferred attributes context.")
         cachedItemAttributes.values.forEach { attributes in
             // Only adjust attributes for the item with preferred attributes,
             // and all items that appear afterwards.
@@ -121,19 +144,22 @@ extension ListLayout {
 
 // MARK: - Preferred Attributes
 extension ListLayout {
-    // NOTE: This method is never called, but it should be called immediately after
+    // NOTE: This method is never called in Playgrounds, but it should be called immediately after
     //       TextFieldItem.preferredLayoutAttributes(fitting:).
     override func shouldInvalidateLayout(forPreferredLayoutAttributes preferredAttributes: NSCollectionViewLayoutAttributes, withOriginalAttributes originalAttributes: NSCollectionViewLayoutAttributes) -> Bool {
         // Invalidate if the item's preferred size is different from it's original attributes.
-        return preferredAttributes.size != originalAttributes.size
+        let shouldInvalidateLayout = preferredAttributes.size.height != originalAttributes.size.height
+        print("🍇: Should invalidate for preferred attributes? \(shouldInvalidateLayout ? "Yes." : "No.")")
+        return shouldInvalidateLayout
     }
 
-    // NOTE: This method is never called, but it should be called immediately after
+    // NOTE: This method is never called in Playgrounds, but it should be called immediately after
     //       shouldInvalidateLayout(forPreferredLayoutAttributes:withOriginalAttributes:).
     override func invalidationContext(forPreferredLayoutAttributes preferredAttributes: NSCollectionViewLayoutAttributes, withOriginalAttributes originalAttributes: NSCollectionViewLayoutAttributes) -> NSCollectionViewLayoutInvalidationContext {
+        print("🍒: Create invalidation context for preferred attributes.")
+
         // Get the initial invalidation context.
         let context = super.invalidationContext(forPreferredLayoutAttributes: preferredAttributes, withOriginalAttributes: originalAttributes) as! InvalidationContext
-        print("🍇: Invalidating layout with preferred attributes.")
 
         // Store the preferred attributes within the invalidation context.
         context.preferredLayoutAttributes = preferredAttributes
@@ -156,10 +182,13 @@ extension ListLayout {
     override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
         // We only need to invalidate the layout if the collection view't width changes.
         // Changes in height won't affect the content's height.
-        return newBounds.width != cachedContentBounds.width
+        let shouldInvalidateLayout = newBounds.width != cachedContentBounds.width
+        print("🍇: Should invalidate for bounds change? \(shouldInvalidateLayout ? "Yes." : "No.")")
+        return shouldInvalidateLayout
     }
 
     override func invalidationContext(forBoundsChange newBounds: NSRect) -> NSCollectionViewLayoutInvalidationContext {
+        print("🍒: Create invalidation context for bounds change.")
         let context = super.invalidationContext(forBoundsChange: newBounds)
         context.contentSizeAdjustment.width = newBounds.width - cachedContentBounds.width
         return context
