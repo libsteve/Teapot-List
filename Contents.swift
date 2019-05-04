@@ -44,21 +44,30 @@ class ListLayout: NSCollectionViewLayout {
 
         cachedContentBounds = collectionView.bounds
 
+        // Calculate initial layout attributes for each item.
+        prepare(sortedItemAttributes: indexPaths.map { indexPath -> NSCollectionViewLayoutAttributes in
+            // Create the item's attributes, and add them to the cache.
+            let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
+            cachedItemAttributes[indexPath] = attributes
+            return attributes
+        })
+    }
+
+    /// Calculate the layout attributes for each item.
+    /// - parameter sortedItemAttributes: The list of layout attributes in order of how they should be displayed
+    ///                                   in the collection view from top to bottom.
+    private func prepare(sortedItemAttributes: [NSCollectionViewLayoutAttributes]) {
         // The width of each item in the collection view.
-        let width = collectionView.bounds.width - contentEdgeInsets.left - contentEdgeInsets.right
+        let width = cachedContentBounds.width - contentEdgeInsets.left - contentEdgeInsets.right
 
         // The origin point for the first (top-most) item in the collection view.
         let origin = NSPoint(x: contentEdgeInsets.left, y: contentEdgeInsets.top)
 
-        // Calculate initial layout attributes for each item.
-        _ = indexPaths.reduce(origin) { origin, indexPath in
+        _ = sortedItemAttributes.reduce(origin) { origin, attributes in
             // Determine the item's size with an "estimated" height value.
             let size = NSSize(width: width, height: 10)
 
-            // Create the item's attributes, and add them to the cache.
-            let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
             attributes.frame = NSRect(origin: origin, size: size)
-            cachedItemAttributes[indexPath] = attributes
 
             // Get the origin point for the next item in the collection view.
             return NSPoint(x: origin.x, y: origin.y + size.height + verticalItemSpacing)
@@ -99,19 +108,8 @@ extension ListLayout {
             print("🍉: Invalidating layout with width adjustment context of \(rawContext.contentSizeAdjustment.width).")
             cachedContentBounds.size.width += rawContext.contentSizeAdjustment.width
 
-            // The origin point for the first (top-most) item in the collection view.
-            let origin = NSPoint(x: contentEdgeInsets.left, y: contentEdgeInsets.top)
-            let width = cachedContentBounds.width - contentEdgeInsets.left - contentEdgeInsets.right
-
-            // Calculate initial layout attributes for each item.
-            _ = cachedItemAttributes.values.reduce(origin) { origin, attributes in
-                // Determine the item's size with an "estimated" height value.
-                let size = NSSize(width: width, height: attributes.size.height)
-                attributes.frame = NSRect(origin: origin, size: size)
-
-                // Get the origin point for the next item in the collection view.
-                return NSPoint(x: origin.x, y: origin.y + size.height + verticalItemSpacing)
-            }
+            // Recalculate initial layout attributes for each item.
+            prepare(sortedItemAttributes: cachedItemAttributes.values.sorted(by: { $0.indexPath! <= $1.indexPath! }))
             return
         }
 
