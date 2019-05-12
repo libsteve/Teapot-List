@@ -1,4 +1,4 @@
-# ListLayout.playground
+# Teapot List.playground
 
 [Link to the relevant StackOverflow question][2]
 
