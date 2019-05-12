@@ -45,7 +45,7 @@ class ListLayout: NSCollectionViewLayout {
         cachedContentBounds = collectionView.bounds
 
         // Calculate initial layout attributes for each item.
-        prepare(sortedItemAttributes: indexPaths.map { indexPath -> NSCollectionViewLayoutAttributes in
+        prepare(estimate: true, sortedItemAttributes: indexPaths.map { indexPath -> NSCollectionViewLayoutAttributes in
             // Create the item's attributes, and add them to the cache.
             let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
             cachedItemAttributes[indexPath] = attributes
@@ -54,9 +54,11 @@ class ListLayout: NSCollectionViewLayout {
     }
 
     /// Calculate the layout attributes for each item.
+    /// - parameter estimate: Determine whether or not the attributes' heights should be set to the estimated value.
+    ///                       The default value is `false` to use the attributes' preexisting height values.
     /// - parameter sortedItemAttributes: The list of layout attributes in order of how they should be displayed
     ///                                   in the collection view from top to bottom.
-    private func prepare(sortedItemAttributes: [NSCollectionViewLayoutAttributes]) {
+    private func prepare(estimate: Bool = false, sortedItemAttributes: [NSCollectionViewLayoutAttributes]) {
         // The width of each item in the collection view.
         let width = cachedContentBounds.width - contentEdgeInsets.left - contentEdgeInsets.right
 
@@ -65,7 +67,8 @@ class ListLayout: NSCollectionViewLayout {
 
         _ = sortedItemAttributes.reduce(origin) { origin, attributes in
             // Determine the item's size with an "estimated" height value.
-            let size = NSSize(width: width, height: 10)
+            let height = estimate ? 10 : attributes.size.height
+            let size = NSSize(width: width, height: height)
 
             attributes.frame = NSRect(origin: origin, size: size)
 
